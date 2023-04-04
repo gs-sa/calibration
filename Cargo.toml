@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 bevy = "0.10.0"
 rand = "0.8.5"
+opencv = "0.73.0"
 
 # optimization level
 [profile.release]
