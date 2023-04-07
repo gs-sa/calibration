@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use bevy::{
     input::{mouse::MouseButtonInput, ButtonState},
     prelude::*,
-    window::{Window, WindowMode},
+    window::{Window, WindowMode}, core::FrameCount,
 };
 
 use opencv::{
@@ -23,6 +23,12 @@ struct MyCam(Arc<Mutex<VideoCapture>>);
 #[derive(Resource)]
 struct MyRng(StdRng);
 
+#[derive(Resource)]
+struct Data {
+    real_center: Vec<(f32, f32)>,
+    observation: Vec<(f32, f32)>,
+}
+
 fn main() {
     let mut vc = VideoCapture::new_default(0).unwrap();
     vc.set(CAP_PROP_FRAME_WIDTH, 1920.0).unwrap();
@@ -33,6 +39,10 @@ fn main() {
     let rng = MyRng(StdRng::from_entropy());
 
     App::new()
+        .insert_resource(Data{
+            real_center: vec![],
+            observation: vec![],
+        })
         .insert_resource(cam)
         .insert_resource(rng)
         .insert_resource(ClearColor(Color::rgb(0., 0., 0.)))
@@ -45,7 +55,7 @@ fn main() {
         }))
         .add_startup_system(setup)
         .add_system(bevy::window::close_on_esc)
-        .add_system(move_aruco)
+        .add_system(get_aruco_and_move_aruco)
         .run();
 }
 
@@ -58,14 +68,22 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     });
 }
 
-fn move_aruco(
+fn get_aruco_and_move_aruco(
     mut mousebtn_evr: EventReader<MouseButtonInput>,
     mut query: Query<(&mut Transform, &Handle<Image>), With<Sprite>>,
     image: Res<Assets<Image>>,
     mut rng: ResMut<MyRng>,
-    mut cam: ResMut<MyCam>,
+    cam: ResMut<MyCam>,
+    mut data: ResMut<Data>,
     windows: Query<&Window>,
+    frame_count: Res<FrameCount>,
 ) {
+    if frame_count.0 != 0 {
+        // let center = get_aruco(&cam);
+        // data.observation.push(center);
+    }
+    
+
     let (mut transform, texture) = query.single_mut();
 
     if let (Some(img), Ok(focused_window)) = (image.get(texture), windows.get_single()) {
@@ -94,13 +112,14 @@ fn move_aruco(
                     window_height, window_width
                 );
                 println!("x: {}, y: {}", new_x, new_y);
+                data.real_center.push((new_x, new_y));
                 transform.translation = Vec3::new(new_x, new_y, 0.);
             }
         }
     }
 }
 
-fn get_aruco(cam: &ResMut<MyCam>) -> [(f32, f32);4] {
+fn get_aruco(cam: &ResMut<MyCam>) -> (f32, f32) {
     let mut a = cam.0.lock().unwrap();
     let mut frame = Mat::default();
     let dict = Dictionary::get(DICT_4X4_100).unwrap();
@@ -111,7 +130,7 @@ fn get_aruco(cam: &ResMut<MyCam>) -> [(f32, f32);4] {
     parameters.set_adaptive_thresh_win_size_min(10);
     parameters.set_adaptive_thresh_win_size_step(3);
     let mut rejected_img_points = no_array();
-    let mut res = [(0.,0.);4];
+    let mut res = (0.,0.);
     while let Ok(_) = a.read(&mut frame) {
         let mut gray_mat = Mat::default();
         // let mut bin_mat = Mat::default();
@@ -168,7 +187,7 @@ fn get_aruco(cam: &ResMut<MyCam>) -> [(f32, f32);4] {
             &mut rejected_img_points,
         )
         .unwrap();
-        if corners.len() != 1 {
+        if corners.len() == 1 {
             // draw_detected_markers(
             //     &mut frame,
             //     &mut corners,
@@ -188,9 +207,13 @@ fn get_aruco(cam: &ResMut<MyCam>) -> [(f32, f32);4] {
             // println!("{:?}", rvecs);
             // println!("{:?}", tvecs);
             let corner = corners.iter().next().unwrap();
-            for (i,p) in corner.iter().enumerate() {
-                res[i] = (p.x, p.y);
+            let mut x = 0.;
+            let mut y = 0.;
+            for p in corner.iter() {
+                x += p.x;
+                y += p.y;
             }
+            res = (x/4.,y/4.);
             break;
         }
     }
